@@ -278,7 +278,6 @@ export default function Home() {
     </div>
   );
 
-  // DESKTOP
   if (!isMobile) {
     return (
       <div style={{ position: "fixed", inset: 0, display: "flex", background: "#0A0A1F", overflow: "hidden" }}>
@@ -297,7 +296,6 @@ export default function Home() {
     );
   }
 
-  // MOBILE
   const TABS = [
     { id: "home",     label: "Home",     icon: "🏠" },
     { id: "chat",     label: "Chat",     icon: "⚡" },
@@ -319,6 +317,7 @@ export default function Home() {
       )}
 
       <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column", minHeight: 0 }}>
+
         {mobileTab === "home" && (
           <div style={{ height: "100%", overflow: "auto" }}>
             <div style={{ padding: "20px 20px 0" }}>
@@ -424,7 +423,7 @@ export default function Home() {
         {TABS.map(tab => {
           const isActive = mobileTab === tab.id;
           return (
-            <button key={tab.id} onClick={() => setMobileTab(tab.id as any)} style={{ flex: 1, padding: "12px 4px 16px", display: "flex", flexDirection: "column", alignItems: "center", gap: 4, background: "transparent", border: "none", borderTop: `2px solid ${isActive ? "#00E5C0" : "transparent"}`, cursor: "pointer" }}>
+            <button key={tab.id} onClick={() => setMobileTab(tab.id as "home" | "chat" | "assets" | "projects")} style={{ flex: 1, padding: "12px 4px 16px", display: "flex", flexDirection: "column", alignItems: "center", gap: 4, background: "transparent", border: "none", borderTop: `2px solid ${isActive ? "#00E5C0" : "transparent"}`, cursor: "pointer" }}>
               <span style={{ fontSize: 22 }}>{tab.icon}</span>
               <span style={{ fontSize: 11, fontFamily: "Space Grotesk, sans-serif", fontWeight: 600, color: isActive ? "#00E5C0" : "#3A3A6A" }}>
                 {tab.id === "assets" && (activeWorkspace?.assets.length ?? 0) > 0 ? `Assets (${activeWorkspace!.assets.length})` : tab.label}
@@ -439,3 +438,4 @@ export default function Home() {
       )}
     </div>
   );
+      }
