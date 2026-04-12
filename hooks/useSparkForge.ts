@@ -180,4 +180,4 @@ export function useSparkForge() {
     createProject, switchProject, deleteProject, saveProject,
     sendMessage, deleteAsset, clearAssets, stopGeneration,
   };
-    }
+        }
