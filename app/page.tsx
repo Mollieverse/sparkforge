@@ -7,12 +7,10 @@ import { AssetCard } from "@/components/AssetCard";
 import { QUICK_PROMPTS, getAssetMeta } from "@/lib/types";
 import type { ChatMessage } from "@/lib/types";
 
-// ── helpers ──────────────────────────────────────────────────────────────────
 const renderText = (t: string) => t
   .replace(/\*\*(.+?)\*\*/g, `<strong style="color:#00E5C0">$1</strong>`)
   .replace(/`([^`]+)`/g, `<code style="background:rgba(0,229,192,0.1);color:#00E5C0;padding:2px 5px;border-radius:4px;font-size:12px">$1</code>`);
 
-// ── ChatUI — lives OUTSIDE Home so it never remounts ─────────────────────────
 interface ChatUIProps {
   messages: ChatMessage[];
   loading: boolean;
@@ -30,53 +28,51 @@ interface ChatUIProps {
 
 const ChatUI = memo(function ChatUI({
   messages, loading, streamBuffer,
-  onSend, onStop, projectName, activeColor,
+  onSend, onStop, projectName,
   assetsCount, isMobile, onDrawerOpen, onEditProject, onAssetsTab,
 }: ChatUIProps) {
   const [input, setInput] = useState("");
   const taRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const streamRef = useRef<HTMLDivElement>(null);
   const isAtBottomRef = useRef(true);
   const prevMsgCount = useRef(messages.length);
 
-  // Track if user is at bottom
-  const onScroll = useCallback(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    isAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
-  }, []);
-
-  // Scroll to bottom instantly (no animation) only when appropriate
-  const scrollToBottom = useCallback((force = false) => {
-    const el = scrollRef.current;
-    if (!el) return;
-    if (force || isAtBottomRef.current) {
-      el.scrollTop = el.scrollHeight;
+  useEffect(() => {
+    if (streamRef.current) {
+      const clean = streamBuffer
+        .replace(/\[ASSET:[^\]]+\][\s\S]*?\[\/ASSET\]/g, "")
+        .replace(/\*\*(.+?)\*\*/g, `<strong style="color:#00E5C0">$1</strong>`)
+        .replace(/`([^`]+)`/g, `<code style="background:rgba(0,229,192,0.1);color:#00E5C0;padding:2px 5px;border-radius:4px;font-size:12px">$1</code>`);
+      streamRef.current.innerHTML = clean;
+      if (isAtBottomRef.current && scrollRef.current) {
+        scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      }
     }
-  }, []);
+  }, [streamBuffer]);
 
-  // Scroll ONCE when a new message is added (user sends or AI response lands)
   useEffect(() => {
     if (messages.length !== prevMsgCount.current) {
       prevMsgCount.current = messages.length;
-      scrollToBottom(true);
+      if (scrollRef.current) {
+        scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      }
+      isAtBottomRef.current = true;
     }
-  }, [messages.length, scrollToBottom]);
+  }, [messages.length]);
 
-  // During streaming: only scroll if pinned to bottom, no smooth scroll
-  useEffect(() => {
-    if (loading && streamBuffer) {
-      scrollToBottom(false);
-    }
-  }, [streamBuffer, loading, scrollToBottom]);
+  const onScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    isAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  }, []);
 
   const send = () => {
     if (input.trim() && !loading) {
       onSend(input);
       setInput("");
-      if (taRef.current) taRef.current.style.height = "auto";
+      if (taRef.current) taRef.current.style.height = "24px";
       isAtBottomRef.current = true;
-      scrollToBottom(true);
     }
   };
 
@@ -95,10 +91,8 @@ const ChatUI = memo(function ChatUI({
           <div style={{ width: 34, height: 34, borderRadius: 10, overflow: "hidden", boxShadow: "0 0 10px rgba(0,229,192,0.2)" }}>
             <img src="/logo.jpg" alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
           </div>
-          <div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: "#E8E8FF", fontFamily: "Space Grotesk, sans-serif" }}>
-              {projectName || "SparkForge"}
-            </div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "#E8E8FF", fontFamily: "Space Grotesk, sans-serif" }}>
+            {projectName || "SparkForge"}
           </div>
         </div>
         <div style={{ display: "flex", gap: 6 }}>
@@ -111,12 +105,8 @@ const ChatUI = memo(function ChatUI({
         </div>
       </div>
 
-      {/* Messages — stable container, no remount */}
-      <div
-        ref={scrollRef}
-        onScroll={onScroll}
-        style={{ flex: 1, overflowY: "auto", padding: "16px", overscrollBehavior: "contain" }}
-      >
+      {/* Messages */}
+      <div ref={scrollRef} onScroll={onScroll} style={{ flex: 1, overflowY: "auto", padding: "16px", overscrollBehavior: "contain" }}>
         {messages.map((msg, i) => (
           <div key={i} style={{ display: "flex", gap: 10, marginBottom: 16, flexDirection: msg.role === "user" ? "row-reverse" : "row" }}>
             {msg.role === "assistant" ? (
@@ -148,7 +138,6 @@ const ChatUI = memo(function ChatUI({
           </div>
         ))}
 
-        {/* Typing dots */}
         {loading && !streamBuffer && (
           <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
             <div style={{ width: 30, height: 30, borderRadius: 8, overflow: "hidden", flexShrink: 0 }}>
@@ -162,17 +151,14 @@ const ChatUI = memo(function ChatUI({
           </div>
         )}
 
-        {/* Streaming buffer */}
-        {loading && streamBuffer && (
-          <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
-            <div style={{ width: 30, height: 30, borderRadius: 8, overflow: "hidden", flexShrink: 0 }}>
-              <img src="/logo.jpg" alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-            </div>
-            <div style={{ maxWidth: "80%", padding: "12px 14px", background: "#13132E", border: "1px solid #1E1E45", borderRadius: "4px 14px 14px 14px", fontSize: 14, lineHeight: 1.65, color: "#E8E8FF" }}>
-              <div style={{ whiteSpace: "pre-wrap" }} dangerouslySetInnerHTML={{ __html: renderText(streamBuffer.replace(/\[ASSET:[^\]]+\][\s\S]*?\[\/ASSET\]/g, "")) }} />
-            </div>
+        <div style={{ display: loading && streamBuffer ? "flex" : "none", gap: 10, marginBottom: 16 }}>
+          <div style={{ width: 30, height: 30, borderRadius: 8, overflow: "hidden", flexShrink: 0 }}>
+            <img src="/logo.jpg" alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
           </div>
-        )}
+          <div style={{ maxWidth: "80%", padding: "12px 14px", background: "#13132E", border: "1px solid #1E1E45", borderRadius: "4px 14px 14px 14px", fontSize: 14, lineHeight: 1.65, color: "#E8E8FF" }}>
+            <div ref={streamRef} style={{ whiteSpace: "pre-wrap" }} />
+          </div>
+        </div>
       </div>
 
       {/* Quick prompts */}
@@ -192,11 +178,14 @@ const ChatUI = memo(function ChatUI({
           <textarea
             ref={taRef}
             value={input}
-            onChange={e => { setInput(e.target.value); e.target.style.height = "auto"; e.target.style.height = Math.min(e.target.scrollHeight, 100) + "px"; }}
+            onChange={e => {
+              setInput(e.target.value);
+              e.target.style.height = Math.min(e.target.scrollHeight, 100) + "px";
+            }}
             onKeyDown={handleKey}
             rows={1}
             placeholder={`Ask SparkForge${projectName ? ` about ${projectName}` : ""}…`}
-            style={{ flex: 1, background: "transparent", border: "none", color: "#E8E8FF", fontSize: 14, lineHeight: 1.5, resize: "none", fontFamily: "inherit", maxHeight: 100, outline: "none" }}
+            style={{ flex: 1, background: "transparent", border: "none", color: "#E8E8FF", fontSize: 14, lineHeight: 1.5, resize: "none", fontFamily: "inherit", minHeight: 24, maxHeight: 100, outline: "none" }}
           />
           <button onClick={loading ? onStop : send} style={{ width: 36, height: 36, borderRadius: 10, border: "none", flexShrink: 0, background: (input.trim() || loading) ? "linear-gradient(135deg,#00E5C0,#7B2CBF)" : "#1E1E45", color: "white", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
             {loading
@@ -213,7 +202,6 @@ const ChatUI = memo(function ChatUI({
   );
 });
 
-// ── Home ─────────────────────────────────────────────────────────────────────
 export default function Home() {
   const {
     workspaces, activeId, activeWorkspace,
@@ -510,4 +498,4 @@ export default function Home() {
       )}
     </div>
   );
-      }
+                    }
