@@ -1,56 +1,82 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback, memo } from "react";
 import { useSparkForge } from "@/hooks/useSparkForge";
 import { ProjectModal } from "@/components/ProjectModal";
 import { AssetCard } from "@/components/AssetCard";
 import { QUICK_PROMPTS, getAssetMeta } from "@/lib/types";
+import type { ChatMessage } from "@/lib/types";
 
-export default function Home() {
-  const {
-    workspaces, activeId, activeWorkspace,
-    loading, streamBuffer, hydrated,
-    createProject, switchProject, deleteProject, saveProject,
-    sendMessage, deleteAsset, clearAssets, stopGeneration,
-  } = useSparkForge();
+// ── helpers ──────────────────────────────────────────────────────────────────
+const renderText = (t: string) => t
+  .replace(/\*\*(.+?)\*\*/g, `<strong style="color:#00E5C0">$1</strong>`)
+  .replace(/`([^`]+)`/g, `<code style="background:rgba(0,229,192,0.1);color:#00E5C0;padding:2px 5px;border-radius:4px;font-size:12px">$1</code>`);
 
-  const [mobileTab, setMobileTab] = useState<"home" | "chat" | "assets" | "projects">("home");
-  const [isMobile, setIsMobile] = useState(true);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [drawerOpen, setDrawerOpen] = useState(false);
+// ── ChatUI — lives OUTSIDE Home so it never remounts ─────────────────────────
+interface ChatUIProps {
+  messages: ChatMessage[];
+  loading: boolean;
+  streamBuffer: string;
+  onSend: (t: string) => void;
+  onStop: () => void;
+  projectName: string;
+  activeColor: string;
+  assetsCount: number;
+  isMobile: boolean;
+  onDrawerOpen: () => void;
+  onEditProject: () => void;
+  onAssetsTab: () => void;
+}
+
+const ChatUI = memo(function ChatUI({
+  messages, loading, streamBuffer,
+  onSend, onStop, projectName, activeColor,
+  assetsCount, isMobile, onDrawerOpen, onEditProject, onAssetsTab,
+}: ChatUIProps) {
   const [input, setInput] = useState("");
-  const endRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const isAtBottomRef = useRef(true);
+  const prevMsgCount = useRef(messages.length);
 
-  useEffect(() => {
-    const check = () => setIsMobile(window.innerWidth < 1024);
-    check();
-    window.addEventListener("resize", check);
-    return () => window.removeEventListener("resize", check);
+  // Track if user is at bottom
+  const onScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    isAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
   }, []);
 
+  // Scroll to bottom instantly (no animation) only when appropriate
+  const scrollToBottom = useCallback((force = false) => {
+    const el = scrollRef.current;
+    if (!el) return;
+    if (force || isAtBottomRef.current) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, []);
+
+  // Scroll ONCE when a new message is added (user sends or AI response lands)
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "auto" });
-  }, [activeWorkspace?.messages]);
+    if (messages.length !== prevMsgCount.current) {
+      prevMsgCount.current = messages.length;
+      scrollToBottom(true);
+    }
+  }, [messages.length, scrollToBottom]);
 
-  if (!hydrated) {
-    return (
-      <div style={{ position: "fixed", inset: 0, background: "#0A0A1F", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 12 }}>
-        <div style={{ fontSize: 48 }}>⚡</div>
-        <div style={{ color: "#8888BB", fontFamily: "Space Grotesk, sans-serif", fontSize: 15 }}>Loading SparkForge...</div>
-      </div>
-    );
-  }
-
-  const colors = ["#00E5C0", "#7B2CBF", "#FF4D94", "#1DA1F2", "#FFD700", "#FF6B35"];
-  const activeColor = activeWorkspace ? colors[activeWorkspace.project.id.charCodeAt(0) % colors.length] : "#00E5C0";
+  // During streaming: only scroll if pinned to bottom, no smooth scroll
+  useEffect(() => {
+    if (loading && streamBuffer) {
+      scrollToBottom(false);
+    }
+  }, [streamBuffer, loading, scrollToBottom]);
 
   const send = () => {
     if (input.trim() && !loading) {
-      sendMessage(input);
+      onSend(input);
       setInput("");
       if (taRef.current) taRef.current.style.height = "auto";
-      if (isMobile) setMobileTab("chat");
+      isAtBottomRef.current = true;
+      scrollToBottom(true);
     }
   };
 
@@ -58,45 +84,40 @@ export default function Home() {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
   };
 
-  const renderText = (t: string) => t
-    .replace(/\*\*(.+?)\*\*/g, `<strong style="color:#00E5C0">$1</strong>`)
-    .replace(/`([^`]+)`/g, `<code style="background:rgba(0,229,192,0.1);color:#00E5C0;padding:2px 5px;border-radius:4px;font-size:12px">$1</code>`);
-
-  const ChatUI = () => (
+  return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
+      {/* Header */}
       <div style={{ padding: "12px 16px", borderBottom: "1px solid #1E1E45", background: "#0F0F2E", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           {isMobile && (
-            <button onClick={() => setDrawerOpen(true)} style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #1E1E45", background: "transparent", color: "#8888BB", cursor: "pointer", fontSize: 16 }}>
-              ☰
-            </button>
+            <button onClick={onDrawerOpen} style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #1E1E45", background: "transparent", color: "#8888BB", cursor: "pointer", fontSize: 16 }}>☰</button>
           )}
           <div style={{ width: 34, height: 34, borderRadius: 10, overflow: "hidden", boxShadow: "0 0 10px rgba(0,229,192,0.2)" }}>
             <img src="/logo.jpg" alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
           </div>
           <div>
             <div style={{ fontSize: 14, fontWeight: 700, color: "#E8E8FF", fontFamily: "Space Grotesk, sans-serif" }}>
-              {activeWorkspace?.project.name || "SparkForge"}
+              {projectName || "SparkForge"}
             </div>
-            {activeWorkspace?.project.ticker && (
-              <div style={{ fontSize: 11, color: activeColor }}>${activeWorkspace.project.ticker}</div>
-            )}
           </div>
         </div>
         <div style={{ display: "flex", gap: 6 }}>
-          <button onClick={() => setModalOpen(true)} style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #1E1E45", background: "transparent", color: "#8888BB", cursor: "pointer", fontSize: 12, fontFamily: "Space Grotesk, sans-serif" }}>
-            ✏️ Edit
-          </button>
+          <button onClick={onEditProject} style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #1E1E45", background: "transparent", color: "#8888BB", cursor: "pointer", fontSize: 12, fontFamily: "Space Grotesk, sans-serif" }}>✏️ Edit</button>
           {isMobile && (
-            <button onClick={() => setMobileTab("assets")} style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #1E1E45", background: "transparent", color: "#8888BB", cursor: "pointer", fontSize: 12, fontFamily: "Space Grotesk, sans-serif" }}>
-              🎨 {activeWorkspace?.assets.length ?? 0}
+            <button onClick={onAssetsTab} style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #1E1E45", background: "transparent", color: "#8888BB", cursor: "pointer", fontSize: 12, fontFamily: "Space Grotesk, sans-serif" }}>
+              🎨 {assetsCount}
             </button>
           )}
         </div>
       </div>
 
-      <div style={{ flex: 1, overflow: "auto", padding: "16px" }}>
-        {activeWorkspace?.messages.map((msg, i) => (
+      {/* Messages — stable container, no remount */}
+      <div
+        ref={scrollRef}
+        onScroll={onScroll}
+        style={{ flex: 1, overflowY: "auto", padding: "16px", overscrollBehavior: "contain" }}
+      >
+        {messages.map((msg, i) => (
           <div key={i} style={{ display: "flex", gap: 10, marginBottom: 16, flexDirection: msg.role === "user" ? "row-reverse" : "row" }}>
             {msg.role === "assistant" ? (
               <div style={{ width: 30, height: 30, borderRadius: 8, overflow: "hidden", flexShrink: 0, marginTop: 2 }}>
@@ -127,6 +148,7 @@ export default function Home() {
           </div>
         ))}
 
+        {/* Typing dots */}
         {loading && !streamBuffer && (
           <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
             <div style={{ width: 30, height: 30, borderRadius: 8, overflow: "hidden", flexShrink: 0 }}>
@@ -140,6 +162,7 @@ export default function Home() {
           </div>
         )}
 
+        {/* Streaming buffer */}
         {loading && streamBuffer && (
           <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
             <div style={{ width: 30, height: 30, borderRadius: 8, overflow: "hidden", flexShrink: 0 }}>
@@ -150,18 +173,19 @@ export default function Home() {
             </div>
           </div>
         )}
-        <div ref={endRef} />
       </div>
 
+      {/* Quick prompts */}
       <div style={{ padding: "8px 16px", display: "flex", gap: 6, flexWrap: "wrap", borderTop: "1px solid #1E1E45", flexShrink: 0 }}>
         {QUICK_PROMPTS.slice(0, 4).map(q => (
-          <button key={q.label} onClick={() => { sendMessage(q.prompt); if (isMobile) setMobileTab("chat"); }}
+          <button key={q.label} onClick={() => onSend(q.prompt)}
             style={{ padding: "6px 12px", borderRadius: 20, border: "1px solid #1E1E45", background: "rgba(255,255,255,0.02)", color: "#8888BB", fontSize: 12, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>
             {q.label}
           </button>
         ))}
       </div>
 
+      {/* Input */}
       <div style={{ padding: "8px 16px 16px", flexShrink: 0 }}>
         <div style={{ display: "flex", gap: 8, alignItems: "flex-end", background: "#13132E", border: "1px solid #1E1E45", borderRadius: 14, padding: "10px 12px" }}>
           <span style={{ fontSize: 18, flexShrink: 0, paddingBottom: 2 }}>⚡</span>
@@ -171,10 +195,10 @@ export default function Home() {
             onChange={e => { setInput(e.target.value); e.target.style.height = "auto"; e.target.style.height = Math.min(e.target.scrollHeight, 100) + "px"; }}
             onKeyDown={handleKey}
             rows={1}
-            placeholder={`Ask SparkForge${activeWorkspace?.project.name ? ` about ${activeWorkspace.project.name}` : ""}…`}
+            placeholder={`Ask SparkForge${projectName ? ` about ${projectName}` : ""}…`}
             style={{ flex: 1, background: "transparent", border: "none", color: "#E8E8FF", fontSize: 14, lineHeight: 1.5, resize: "none", fontFamily: "inherit", maxHeight: 100, outline: "none" }}
           />
-          <button onClick={loading ? stopGeneration : send} style={{ width: 36, height: 36, borderRadius: 10, border: "none", flexShrink: 0, background: (input.trim() || loading) ? "linear-gradient(135deg,#00E5C0,#7B2CBF)" : "#1E1E45", color: "white", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <button onClick={loading ? onStop : send} style={{ width: 36, height: 36, borderRadius: 10, border: "none", flexShrink: 0, background: (input.trim() || loading) ? "linear-gradient(135deg,#00E5C0,#7B2CBF)" : "#1E1E45", color: "white", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
             {loading
               ? <svg width="14" height="14" viewBox="0 0 24 24" fill="white"><rect x="4" y="4" width="16" height="16" rx="2" /></svg>
               : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></svg>
@@ -187,6 +211,40 @@ export default function Home() {
       </div>
     </div>
   );
+});
+
+// ── Home ─────────────────────────────────────────────────────────────────────
+export default function Home() {
+  const {
+    workspaces, activeId, activeWorkspace,
+    loading, streamBuffer, hydrated,
+    createProject, switchProject, deleteProject, saveProject,
+    sendMessage, deleteAsset, clearAssets, stopGeneration,
+  } = useSparkForge();
+
+  const [mobileTab, setMobileTab] = useState<"home" | "chat" | "assets" | "projects">("home");
+  const [isMobile, setIsMobile] = useState(true);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 1024);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
+
+  if (!hydrated) {
+    return (
+      <div style={{ position: "fixed", inset: 0, background: "#0A0A1F", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 12 }}>
+        <div style={{ fontSize: 48 }}>⚡</div>
+        <div style={{ color: "#8888BB", fontFamily: "Space Grotesk, sans-serif", fontSize: 15 }}>Loading SparkForge...</div>
+      </div>
+    );
+  }
+
+  const colors = ["#00E5C0", "#7B2CBF", "#FF4D94", "#1DA1F2", "#FFD700", "#FF6B35"];
+  const activeColor = activeWorkspace ? colors[activeWorkspace.project.id.charCodeAt(0) % colors.length] : "#00E5C0";
 
   const AssetsUI = () => (
     <div style={{ display: "flex", flexDirection: "column", overflow: "hidden", height: "100%" }}>
@@ -278,6 +336,21 @@ export default function Home() {
     </div>
   );
 
+  const chatProps: ChatUIProps = {
+    messages: activeWorkspace?.messages ?? [],
+    loading,
+    streamBuffer,
+    onSend: sendMessage,
+    onStop: stopGeneration,
+    projectName: activeWorkspace?.project.name ?? "",
+    activeColor,
+    assetsCount: activeWorkspace?.assets.length ?? 0,
+    isMobile,
+    onDrawerOpen: () => setDrawerOpen(true),
+    onEditProject: () => setModalOpen(true),
+    onAssetsTab: () => setMobileTab("assets"),
+  };
+
   if (!isMobile) {
     return (
       <div style={{ position: "fixed", inset: 0, display: "flex", background: "#0A0A1F", overflow: "hidden" }}>
@@ -285,7 +358,7 @@ export default function Home() {
         <div style={{ width: 240, flexShrink: 0, borderRight: "1px solid #1E1E45", overflow: "hidden" }}>
           <ProjectsUI />
         </div>
-        <ChatUI />
+        <ChatUI {...chatProps} />
         <div style={{ width: 300, flexShrink: 0, borderLeft: "1px solid #1E1E45", overflow: "hidden" }}>
           <AssetsUI />
         </div>
@@ -403,7 +476,7 @@ export default function Home() {
           </div>
         )}
 
-        {mobileTab === "chat" && <ChatUI />}
+        {mobileTab === "chat" && <ChatUI {...chatProps} />}
 
         {mobileTab === "assets" && (
           <div style={{ height: "100%", overflow: "hidden", display: "flex", flexDirection: "column" }}>
