@@ -30,8 +30,8 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [activeWorkspace?.messages, streamBuffer]);
+    endRef.current?.scrollIntoView({ behavior: "auto" });
+  }, [activeWorkspace?.messages]);
 
   if (!hydrated) {
     return (
@@ -317,7 +317,6 @@ export default function Home() {
       )}
 
       <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column", minHeight: 0 }}>
-
         {mobileTab === "home" && (
           <div style={{ height: "100%", overflow: "auto" }}>
             <div style={{ padding: "20px 20px 0" }}>
